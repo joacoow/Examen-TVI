@@ -1,0 +1,22 @@
+# Datos (no subir CSV con datos reales al repositorio)
+*.csv
+*.xlsx
+*.xls
+data/
+
+# Entorno virtual de Python
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# VS Code
+.vscode/settings.json
+
+# Streamlit cache
+.streamlit/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
