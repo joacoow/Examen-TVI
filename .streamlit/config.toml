@@ -1,0 +1,15 @@
+[theme]
+# Azul corporativo profundo para destacar (combina con tus gráficos)
+primaryColor = "#1d6fa4"
+
+# Fondo general ligeramente gris para que las tarjetas blancas resalten
+backgroundColor = "#F4F6F9"
+
+# Fondo del panel lateral (Sidebar) un tono más oscuro para diferenciarlo
+secondaryBackgroundColor = "#EAEFF4"
+
+# Color del texto (gris oscuro, más elegante y legible que el negro puro)
+textColor = "#2C3E50"
+
+# Tipografía limpia y moderna
+font = "sans serif"
