@@ -358,7 +358,7 @@ with tab_mapa:
         margin=dict(r=10, t=10, l=10, b=20),
         height=700,
         coloraxis_colorbar=dict(
-            title="Ventas<br>Totales", thickness=15, len=0.8,
+            title="Ventas<br>Totales", thickness=15, len=0.6,
             x=1.0, y=0.55, xanchor="left", yanchor="middle",
             tickfont=dict(color=TXT_COLOR), title_font=dict(color=TXT_COLOR)
         )
