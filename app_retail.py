@@ -4,18 +4,16 @@ import plotly.express as px
 import streamlit as st
 from pathlib import Path
 
-# ─────────────────────────────────────────────
 # CONFIGURACIÓN DE LA PÁGINA
-# ─────────────────────────────────────────────
+
 st.set_page_config(
     page_title="Dashboard E-Commerce Online Retail",
     page_icon="🚀",
     layout="wide"
 )
 
-# ─────────────────────────────────────────────
-# INYECCIÓN DE CSS (DISEÑO CORPORATIVO DASH)
-# ─────────────────────────────────────────────
+# INYECCIÓN DE CSS 
+
 st.markdown("""
 <style>
     /* 1. Limitar ancho máximo y centrar */
@@ -164,11 +162,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
 # PALETA GLOBAL Y LAYOUT PLOTLY (HOMOLOGADO)
-# 🚨 Se eliminaron COL_SEQ y COL_DIV: eran variables heredadas de una
-#    versión previa de diseño que nunca llegaron a usarse en ningún gráfico.
-# ─────────────────────────────────────────────
 COL_MULTI     = px.colors.diverging.Tealrose
 COL_TIME      = "#1d6fa4"
 COL_CAT       = ["#1d6fa4", "#f4a261", "#2a9d8f"]
@@ -188,18 +182,13 @@ PLOTLY_CONFIG = {
 }
 
 # 🚨 Nombres de país que el GeoJSON no reconoce con la grafía del dataset.
-#    Se aplica SOLO al armar el mapa (locations); el resto del dashboard
-#    sigue mostrando el nombre original en leyendas y tooltips.
 MAPEO_PAISES_GEOJSON = {
     "EIRE": "Ireland",
     "USA": "United States of America",
     "RSA": "South Africa",
 }
 
-
-# ═════════════════════════════════════════════
 # FUNCIONES DE DATOS (carga, filtros, KPIs)
-# ═════════════════════════════════════════════
 @st.cache_data
 def cargar_datos():
     ruta = Path(__file__).parent / "retail_limpio.csv"
@@ -218,30 +207,18 @@ def cargar_datos():
 
 
 def detectar_columna_invoice(df):
-    """Busca la columna que identifica cada factura (varía según la versión del dataset)."""
-    for candidato in ["Invoice", "InvoiceNo", "InvoiceID", "Numero_Factura"]:
-        if candidato in df.columns:
-            return candidato
+    """
+    Identifica la columna de transacciones. 
+   """    
+    # Verificación directa y eficiente de la columna en el dataset actual
+    if "Invoice" in df.columns:
+        return "Invoice"
+        
     return None
-
 
 def aplicar_filtros(df, mercados, q_min, q_max, start_date, end_date, col_invoice):
     """
     Aplica los filtros globales del sidebar y devuelve el DataFrame maestro (dff).
-
-    🚨 FIX: el filtro de Volumen (Quantity) antes comparaba línea por línea
-    (df["Quantity"].between(q_min, q_max)), lo que podía dejar una factura
-    "mutilada": algunas de sus líneas dentro del rango y otras fuera, mientras
-    calcular_kpis() la seguía contando como 1 factura completa y sumaba solo
-    la facturación de las líneas sobrevivientes -> Ticket Promedio y
-    Facturación Total quedaban subestimados sin ningún aviso.
-
-    Ahora el volumen se mide como el TOTAL de unidades por factura (sumando
-    todas sus líneas), y la factura se incluye o excluye COMPLETA según ese
-    total. Así ninguna factura puede quedar parcialmente representada.
-
-    Si el dataset no trae columna de factura, se hace un fallback explícito
-    al filtro por línea (documentado, no silencioso).
     """
     base = df[
         (df["Macro_Mercado"].isin(mercados)) &
@@ -257,15 +234,7 @@ def aplicar_filtros(df, mercados, q_min, q_max, start_date, end_date, col_invoic
         # Fallback: sin columna de factura no hay forma de agrupar, se filtra por línea.
         return base[base["Quantity"].between(q_min, q_max)]
 
-
 def calcular_kpis(dff, col_invoice):
-    """
-    🚨 FIX: en este dataset cada fila es una LÍNEA de producto dentro de una factura,
-    no una transacción completa. Si existe la columna de factura, contamos facturas
-    únicas y calculamos el ticket promedio agrupando primero por factura. Si esa
-    columna no existe en el CSV, hacemos un fallback transparente a nivel de línea
-    (y el rótulo del KPI cambia para no inducir a error).
-    """
     facturacion_total = dff["TotalVenta"].sum()
 
     if col_invoice and col_invoice in dff.columns:
@@ -279,25 +248,15 @@ def calcular_kpis(dff, col_invoice):
 
     return n_transacciones, facturacion_total, ticket_promedio, es_por_factura
 
-
 def normalizar_paises_geojson(df_mapa, columna="Country"):
     """Crea 'Country_Geo': la grafía que el GeoJSON reconoce (EIRE->Ireland, etc.)."""
     df_mapa = df_mapa.copy()
     df_mapa["Country_Geo"] = df_mapa[columna].replace(MAPEO_PAISES_GEOJSON)
     return df_mapa
 
-
-# ═════════════════════════════════════════════
 # FUNCIONES DE VISUALIZACIÓN (una por gráfico)
-# ═════════════════════════════════════════════
+
 def crear_mapa(dff, col_invoice):
-    """
-    🚨 FIX: "Num_Transacciones" contaba líneas de producto (.count() sobre
-    TotalVenta), igual que el bug ya corregido en las tarjetas KPI y el sunburst.
-    Ahora agrupa por factura única (nunique) cuando la columna existe; si no,
-    hace fallback explícito a nivel de línea y cambia la etiqueta del hover
-    para no llamar "transacciones" a algo que no lo es.
-    """
     if col_invoice and col_invoice in dff.columns:
         df_mapa = (
             dff.groupby(['Country', 'Mes'], as_index=False)
@@ -342,9 +301,6 @@ def crear_mapa(dff, col_invoice):
         opacity=0.85
     )
 
-    # 🚨 hover_data de Plotly Express no permite anteponer el símbolo £ a los números,
-    # así que se reemplaza por un hovertemplate manual. Como el mapa es animado (tiene
-    # un frame por mes), hay que aplicarlo también a cada frame, no solo a la traza inicial.
     plantilla_hover = (
         "<b>%{hovertext}</b><br>"
         "Facturación: £%{z:,.2f}<br>"
@@ -388,17 +344,7 @@ def crear_mapa(dff, col_invoice):
 
     return fig_mapa
 
-
 def crear_sunburst(dff, col_invoice):
-    """
-    🚨 FIX: igual que en las tarjetas KPI superiores, "Transacciones" aquí antes
-    contaba líneas de producto (.count() sobre TotalVenta), no facturas. Eso hacía
-    que el "Ticket Promedio" de esta pestaña fuera incomparable con el de las
-    tarjetas (que sí es por factura). Ahora ambos usan la misma metodología:
-    se agrupa por factura única cuando la columna existe; si no, se hace un
-    fallback explícito a nivel de línea y se etiqueta como tal (sin llamarlo
-    "ticket promedio" para no insinuar algo que el dato no mide).
-    """
     df_sunburst = dff.dropna(subset=['Macro_Mercado', 'Country'])
 
     if col_invoice and col_invoice in df_sunburst.columns:
@@ -452,7 +398,6 @@ def crear_sunburst(dff, col_invoice):
     )
     return fig_sun, tree_data, etiqueta_volumen, etiqueta_ticket
 
-
 def crear_paralelas(dff):
     df_sample = dff[['Quantity', 'Price', 'TotalVenta']].dropna().sample(n=min(1000, len(dff)), random_state=42)
     df_paralelo = pd.DataFrame({
@@ -475,7 +420,6 @@ def crear_paralelas(dff):
         margin=dict(l=70, r=70, t=50, b=40), height=550
     )
     return fig_pc
-
 
 def crear_polar(dff, tipo_eje):
     polar_data = dff.dropna(subset=['InvoiceDate']).copy()
@@ -510,7 +454,6 @@ def crear_polar(dff, tipo_eje):
     )
     return fig_polar, polar_data
 
-
 def crear_tiempo(dff):
     df_time = dff.groupby(dff['InvoiceDate'].dt.date)['TotalVenta'].sum().reset_index().rename(columns={'InvoiceDate': 'Fecha'})
     df_time['Fecha'] = pd.to_datetime(df_time['Fecha'])
@@ -522,16 +465,11 @@ def crear_tiempo(dff):
     fig_time.update_layout(LAYOUT, margin=dict(r=10, t=20, l=10, b=0), hovermode="x unified", height=500)
     return fig_time, df_time
 
-
-# ═════════════════════════════════════════════
 # CARGA DE DATOS Y DETECCIÓN DE COLUMNA DE FACTURA
-# ═════════════════════════════════════════════
 df = cargar_datos()
 COL_INVOICE = detectar_columna_invoice(df)
 
-# ─────────────────────────────────────────────
 # SIDEBAR – FILTROS GLOBALES MÁSTER
-# ─────────────────────────────────────────────
 with st.sidebar:
     st.markdown("""
     <div style='text-align: center; padding-bottom: 5px;'>
@@ -549,10 +487,6 @@ with st.sidebar:
         label_visibility="collapsed"
     )
 
-    # 🚨 FIX: los límites y el valor por defecto del slider ahora se calculan sobre
-    # el TOTAL de unidades por factura (no por línea), coherente con aplicar_filtros().
-    # El valor por defecto es el rango completo -> igual que Mercado y Fecha,
-    # por defecto ningún filtro esconde datos; el usuario decide si acota.
     if COL_INVOICE and COL_INVOICE in df.columns:
         qty_por_factura_global = df.groupby(COL_INVOICE)["Quantity"].sum()
         qty_min_bound, qty_max_bound = int(qty_por_factura_global.min()), int(qty_por_factura_global.max())
@@ -600,9 +534,7 @@ if dff.empty:
     st.warning("No hay datos para los criterios seleccionados. Ajusta los filtros.")
     st.stop()
 
-# ─────────────────────────────────────────────
 # ENCABEZADO GERENCIAL
-# ─────────────────────────────────────────────
 st.markdown("""
 <div style="background-color: #ffffff; padding: 20px 30px; border-radius: 12px; border: 1px solid #e0e6ed; border-left: 6px solid #1d6fa4; box-shadow: 0px 4px 6px rgba(0,0,0,0.04); margin-bottom: 2rem; margin-top: 0; display: flex; align-items: center; justify-content: space-between;">
     <div>
@@ -619,10 +551,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# 🚨 FIX: cada fila del dataset es una línea de producto, no una factura completa.
-# calcular_kpis() cuenta facturas únicas y promedia el ticket a nivel de factura
-# cuando existe la columna correspondiente; si no, hace un fallback honesto a nivel
-# de línea y cambia el rótulo para no insinuar algo que el dato no respalda.
+
 n_transacciones, facturacion_total, ticket_promedio, es_por_factura = calcular_kpis(dff, COL_INVOICE)
 
 k1, k2, k3 = st.columns(3)
@@ -636,9 +565,8 @@ k2.metric("💰 Facturación Total", f"£{facturacion_total:,.0f}")
 
 st.markdown("<div style='margin-bottom: 2rem;'></div>", unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
+
 # ESTRUCTURA DE PESTAÑAS (TABS)
-# ─────────────────────────────────────────────
 tab_mapa, tab_sunburst, tab_relaciones, tab_polar, tab_tiempo = st.tabs([
     "🌍 Mapa Geográfico",
     "🎯 Comportamiento",
@@ -750,9 +678,6 @@ with tab_tiempo:
     st.markdown("<p style='color: #7f8c8d; font-size: 0.85rem; font-style: italic;'>Desliza los controles inferiores para hacer zoom en días o semanas específicas.</p>", unsafe_allow_html=True)
 
     with st.expander("💡 Interpretación Gerencial: Dinámica Temporal"):
-        # 🚨 FIX: "impacto exacto de campañas" no es una afirmación que el dataset respalde
-        # (no existe una variable de campañas), y la fecha de corte real se calcula desde
-        # los propios datos en vez de asumir "fin de diciembre".
         fecha_corte = max_date.strftime('%d-%m-%Y')
         st.markdown(
             "Esta vista continua permite a la gerencia identificar fechas con aumentos o caídas "
