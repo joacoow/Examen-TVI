@@ -225,14 +225,37 @@ def detectar_columna_invoice(df):
     return None
 
 
-def aplicar_filtros(df, mercados, q_min, q_max, start_date, end_date):
-    """Aplica los 3 filtros globales del sidebar y devuelve el DataFrame maestro (dff)."""
-    return df[
+def aplicar_filtros(df, mercados, q_min, q_max, start_date, end_date, col_invoice):
+    """
+    Aplica los filtros globales del sidebar y devuelve el DataFrame maestro (dff).
+
+    🚨 FIX: el filtro de Volumen (Quantity) antes comparaba línea por línea
+    (df["Quantity"].between(q_min, q_max)), lo que podía dejar una factura
+    "mutilada": algunas de sus líneas dentro del rango y otras fuera, mientras
+    calcular_kpis() la seguía contando como 1 factura completa y sumaba solo
+    la facturación de las líneas sobrevivientes -> Ticket Promedio y
+    Facturación Total quedaban subestimados sin ningún aviso.
+
+    Ahora el volumen se mide como el TOTAL de unidades por factura (sumando
+    todas sus líneas), y la factura se incluye o excluye COMPLETA según ese
+    total. Así ninguna factura puede quedar parcialmente representada.
+
+    Si el dataset no trae columna de factura, se hace un fallback explícito
+    al filtro por línea (documentado, no silencioso).
+    """
+    base = df[
         (df["Macro_Mercado"].isin(mercados)) &
-        (df["Quantity"].between(q_min, q_max)) &
         (df["InvoiceDate"] >= start_date) &
         (df["InvoiceDate"] <= end_date)
     ]
+
+    if col_invoice and col_invoice in base.columns:
+        qty_por_factura = base.groupby(col_invoice)["Quantity"].sum()
+        facturas_calificadas = qty_por_factura[qty_por_factura.between(q_min, q_max)].index
+        return base[base[col_invoice].isin(facturas_calificadas)]
+    else:
+        # Fallback: sin columna de factura no hay forma de agrupar, se filtra por línea.
+        return base[base["Quantity"].between(q_min, q_max)]
 
 
 def calcular_kpis(dff, col_invoice):
@@ -526,12 +549,24 @@ with st.sidebar:
         label_visibility="collapsed"
     )
 
-    st.markdown("<p style='color: #1d6fa4; font-size: 0.8rem; font-weight: 600; margin-top: 15px; margin-bottom: 5px;'>📦 Volumen (Quantity)</p>", unsafe_allow_html=True)
+    # 🚨 FIX: los límites y el valor por defecto del slider ahora se calculan sobre
+    # el TOTAL de unidades por factura (no por línea), coherente con aplicar_filtros().
+    # El valor por defecto es el rango completo -> igual que Mercado y Fecha,
+    # por defecto ningún filtro esconde datos; el usuario decide si acota.
+    if COL_INVOICE and COL_INVOICE in df.columns:
+        qty_por_factura_global = df.groupby(COL_INVOICE)["Quantity"].sum()
+        qty_min_bound, qty_max_bound = int(qty_por_factura_global.min()), int(qty_por_factura_global.max())
+        etiqueta_qty = "📦 Volumen por Factura (unidades totales)"
+    else:
+        qty_min_bound, qty_max_bound = int(df["Quantity"].min()), int(df["Quantity"].max())
+        etiqueta_qty = "📦 Volumen (Quantity por línea)"
+
+    st.markdown(f"<p style='color: #1d6fa4; font-size: 0.8rem; font-weight: 600; margin-top: 15px; margin-bottom: 5px;'>{etiqueta_qty}</p>", unsafe_allow_html=True)
     q_min, q_max = st.slider(
-        "Volumen (Quantity)",
-        int(df["Quantity"].min()),
-        int(df["Quantity"].max()),
-        (1, 100),
+        etiqueta_qty,
+        qty_min_bound,
+        qty_max_bound,
+        (qty_min_bound, qty_max_bound),
         label_visibility="collapsed"
     )
 
@@ -559,7 +594,7 @@ else:
 start_date = pd.to_datetime(start_date)
 end_date = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
 
-dff = aplicar_filtros(df, mercados, q_min, q_max, start_date, end_date)
+dff = aplicar_filtros(df, mercados, q_min, q_max, start_date, end_date, COL_INVOICE)
 
 if dff.empty:
     st.warning("No hay datos para los criterios seleccionados. Ajusta los filtros.")
@@ -629,6 +664,10 @@ with tab_mapa:
 with tab_sunburst:
     fig_sun, tree_data, etiqueta_volumen, etiqueta_ticket = crear_sunburst(dff, COL_INVOICE)
 
+    # Definimos los datos reales antes de cualquier agrupación para contar bien los países
+    df_sunburst = dff.dropna(subset=['Country']) 
+    paises_activos = df_sunburst["Country"].nunique()
+
     if fig_sun is None:
         st.info("No hay datos suficientes para construir el gráfico jerárquico con los filtros actuales.")
     else:
@@ -640,10 +679,14 @@ with tab_sunburst:
         with col_info:
             top_pais = tree_data.loc[tree_data['TotalVenta'].idxmax()]
             top_ticket = tree_data.loc[tree_data['Ticket_Promedio'].idxmax()]
+            
             st.markdown("<div style='padding-top: 10px;'></div>", unsafe_allow_html=True)
             st.metric("🏆 País líder en facturación", top_pais['Country'], f"£{top_pais['TotalVenta']:,.0f}")
             st.metric(f"💎 Mayor {etiqueta_ticket.lower()}", top_ticket['Country'], f"£{top_ticket['Ticket_Promedio']:,.2f}")
-            st.metric("🗂️ Países / Regiones activas", f"{tree_data['Country'].nunique()}")
+            
+            # 👇 CORRECCIÓN APLICADA AQUÍ: Usamos la variable paises_activos
+            st.metric("🗂️ Países / Regiones activas", f"{paises_activos}")
+            
             st.markdown(
                 f"<p style='color:#7f8c8d; font-size:0.85rem; line-height:1.6; margin-top:10px;'>"
                 f"El color representa el <b>{etiqueta_ticket.lower()}</b>; el tamaño del bloque, el volumen de {etiqueta_volumen.lower()}."
